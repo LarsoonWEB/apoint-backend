@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import configuration from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -28,7 +29,7 @@ import { HealthModule } from './health/health.module';
     // Event system (for notifications)
     EventEmitterModule.forRoot(),
 
-    // Scheduled tasks (reminders, daily summaries)
+    // Scheduled tasks (reminders, daily summaries, token cleanup)
     ScheduleModule.forRoot(),
 
     // Rate limiting
@@ -60,6 +61,13 @@ import { HealthModule } from './health/health.module';
     NotificationsModule,
     WhatsappModule,
     HealthModule,
+  ],
+  providers: [
+    // Register ThrottlerGuard globally so rate limiting is enforced on all endpoints
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

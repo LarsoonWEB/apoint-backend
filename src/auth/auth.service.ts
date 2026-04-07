@@ -8,8 +8,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserType } from '@prisma/client';
 import {
@@ -25,13 +27,18 @@ import { JwtPayload } from './strategies/jwt.strategy';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly googleClient: OAuth2Client;
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
-  ) {}
+  ) {
+    this.googleClient = new OAuth2Client(
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+    );
+  }
 
   // ── Register ──────────────────────────────────────────────
 
@@ -126,15 +133,18 @@ export class AuthService {
   // ── OAuth (Google / Apple) ────────────────────────────────
 
   async oauthLogin(provider: 'google' | 'apple', dto: OAuthDto) {
-    // In production, verify the ID token with the provider's public keys
-    // For MVP, we trust the token and extract claims
-    // This is a placeholder — actual implementation requires google-auth-library or apple-signin-auth
-    const decoded = this.decodeOAuthToken(dto.idToken);
+    let decoded: { email: string; firstName?: string; lastName?: string; picture?: string } | null = null;
+
+    if (provider === 'google') {
+      decoded = await this.verifyGoogleToken(dto.idToken);
+    } else if (provider === 'apple') {
+      decoded = await this.verifyAppleToken(dto.idToken);
+    }
 
     if (!decoded || !decoded.email) {
       throw new BadRequestException({
         code: 'INVALID_TOKEN',
-        message: 'Invalid OAuth token',
+        message: 'Invalid OAuth token — signature verification failed',
       });
     }
 
@@ -323,6 +333,22 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
+  // ── Refresh Token Cleanup Cron ────────────────────────────
+  // Runs every Sunday at 3:00 AM to delete expired/revoked tokens
+
+  @Cron(CronExpression.EVERY_WEEK)
+  async cleanupExpiredTokens() {
+    const result = await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { isRevoked: true, createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
+        ],
+      },
+    });
+    this.logger.log(`Cleaned up ${result.count} expired/revoked refresh tokens`);
+  }
+
   // ── Private Helpers ───────────────────────────────────────
 
   private async generateTokens(userId: string, email: string, userType: UserType) {
@@ -356,22 +382,60 @@ export class AuthService {
     };
   }
 
-  private decodeOAuthToken(idToken: string): any {
-    // Placeholder: In production, verify with Google/Apple public keys
-    // For now, decode the JWT payload without verification
+  // ── Google Token Verification ─────────────────────────────
+
+  private async verifyGoogleToken(idToken: string): Promise<{
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    picture?: string;
+  } | null> {
     try {
-      const parts = idToken.split('.');
-      if (parts.length !== 3) return null;
-      const payload = JSON.parse(
-        Buffer.from(parts[1], 'base64url').toString(),
-      );
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken,
+        audience: this.configService.get<string>('GOOGLE_CLIENT_ID'),
+      });
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) return null;
+
       return {
         email: payload.email,
-        firstName: payload.given_name || payload.name?.split(' ')[0],
-        lastName: payload.family_name || payload.name?.split(' ').slice(1).join(' '),
+        firstName: payload.given_name,
+        lastName: payload.family_name,
         picture: payload.picture,
       };
-    } catch {
+    } catch (error) {
+      this.logger.warn(`Google token verification failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  // ── Apple Token Verification ──────────────────────────────
+
+  private async verifyAppleToken(idToken: string): Promise<{
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    picture?: string;
+  } | null> {
+    try {
+      // apple-signin-auth verifies the token signature against Apple's public keys
+      const appleSignin = await import('apple-signin-auth');
+      const payload = await appleSignin.verifyIdToken(idToken, {
+        audience: this.configService.get<string>('APPLE_CLIENT_ID'),
+        ignoreExpiration: false,
+      });
+
+      if (!payload || !payload.email) return null;
+
+      return {
+        email: payload.email,
+        firstName: undefined, // Apple only sends name on first login (handled by frontend)
+        lastName: undefined,
+        picture: undefined,
+      };
+    } catch (error) {
+      this.logger.warn(`Apple token verification failed: ${error.message}`);
       return null;
     }
   }
