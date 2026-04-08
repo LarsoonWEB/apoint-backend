@@ -169,10 +169,10 @@ export class PaymentsService {
         amount,
         currency: 'EUR',
         type,
-        status: 'pending',
+        status: 'PENDING',
         platformFee: platformFee / 100,
         providerPayout: (amountCents - platformFee) / 100,
-      },
+      } as any,
     });
 
     return {
@@ -191,7 +191,7 @@ export class PaymentsService {
     const payments = await this.prisma.payment.findMany({
       where: {
         bookingId,
-        status: 'succeeded',
+        status: 'FULLY_PAID',
       },
     });
 
@@ -217,10 +217,10 @@ export class PaymentsService {
       await this.prisma.payment.update({
         where: { id: payment.id },
         data: {
-          status: 'refunded',
+          status: 'REFUNDED',
           refundAmount: refundAmount / 100,
           refundReason: reason || 'Booking cancelled',
-        },
+        } as any,
       });
 
       results.push(refund);
@@ -288,7 +288,7 @@ export class PaymentsService {
 
     await this.prisma.payment.update({
       where: { id: payment.id },
-      data: { status: 'succeeded' },
+      data: { status: 'FULLY_PAID' } as any,
     });
 
     const type = paymentIntent.metadata.type;
@@ -315,7 +315,7 @@ export class PaymentsService {
 
     await this.prisma.payment.update({
       where: { id: payment.id },
-      data: { status: 'failed' },
+      data: { status: 'FAILED' } as any,
     });
 
     this.eventEmitter.emit('payment.failed', {
