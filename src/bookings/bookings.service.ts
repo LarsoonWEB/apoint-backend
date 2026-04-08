@@ -54,8 +54,9 @@ export class BookingsService {
     });
     if (!worker) throw new NotFoundException('Worker not found');
 
-    const targetDate = new Date(date);
-    const dayOfWeek = (targetDate.getDay() + 6) % 7; // Convert to 0=Monday
+    const dateObj = new Date(date);
+    const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    const dayOfWeek = dayNames[dateObj.getDay()];
 
     // Collect all working hour windows for this day
     const windows: { locationId: string; openMin: number; closeMin: number; breakStartMin?: number; breakEndMin?: number }[] = [];
@@ -295,7 +296,7 @@ export class BookingsService {
               sortOrder: i,
             })),
           },
-        },
+        } as any,
         include: {
           bookingServices: true,
           business: { select: { name: true, slug: true } },
@@ -570,7 +571,7 @@ export class BookingsService {
             sortOrder: bs.sortOrder,
           })),
         },
-      },
+      } as any,
       include: {
         bookingServices: true,
         business: { select: { name: true } },
