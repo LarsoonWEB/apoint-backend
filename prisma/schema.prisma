@@ -20,14 +20,21 @@ enum BookingStatus {
   PENDING
   CONFIRMED
   CANCELLED
+  CANCELLED_BY_USER
+  CANCELLED_BY_PROVIDER
+  IN_PROGRESS
   COMPLETED
   NO_SHOW
   REJECTED
 }
 
 enum PaymentStatus {
+  NONE
   PENDING
+  DEPOSIT_PAID
+  FULLY_PAID
   COMPLETED
+  PARTIALLY_REFUNDED
   REFUNDED
   FAILED
 }
@@ -73,17 +80,18 @@ model User {
   resetToken    String?
   resetTokenExp DateTime?
   avatarUrl     String?
+  locale        String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   refreshTokens RefreshToken[]
   businesses    Business[]
   bookings      Booking[]
-  reviews       Review[]
+  reviews       Review[]       @relation("ReviewAuthor")
   notifications Notification[]
   deviceTokens  DeviceToken[]
   favorites     Favorite[]
-  worker        Worker?
+  workers       Worker[]
 
   @@map("users")
 }
@@ -104,10 +112,16 @@ model RefreshToken {
 model Category {
   id        String   @id @default(cuid())
   name      String
+  nameHr    String?
   slug      String   @unique
   icon      String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  parentId  String?
   createdAt DateTime @default(now())
 
+  parent     Category?  @relation("CategoryChildren", fields: [parentId], references: [id])
+  children   Category[] @relation("CategoryChildren")
   businesses Business[]
   services   Service[]
 
@@ -126,46 +140,56 @@ model Business {
   website                  String?
   logoUrl                  String?
   coverUrl                 String?
+  coverPhotoUrl            String?
   isActive                 Boolean  @default(true)
   stripeAccountId          String?
   stripeOnboardingComplete Boolean  @default(false)
+  bookingMode              String?
+  depositType              String?
+  depositAmount            Float?
+  cancellationHours        Int?
+  whatsappNumber           String?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
   owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   category Category? @relation(fields: [categoryId], references: [id])
 
-  locations    Location[]
-  services     Service[]
-  workers      Worker[]
-  bookings     Booking[]
-  reviews      Review[]
-  payments     Payment[]
-  blockedSlots BlockedSlot[]
-  favorites    Favorite[]
+  locations             Location[]
+  services              Service[]
+  workers               Worker[]
+  bookings              Booking[]
+  reviews               Review[]
+  payments              Payment[]
+  blockedSlots          BlockedSlot[]
+  favorites             Favorite[]
+  whatsappConversations WhatsappConversation[]
 
   @@map("businesses")
 }
 
 model Location {
-  id         String   @id @default(cuid())
-  businessId String
-  name       String
-  address    String
-  city       String?
-  state      String?
-  country    String?
-  postalCode String?
-  latitude   Float?
-  longitude  Float?
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id           String   @id @default(cuid())
+  businessId   String
+  name         String
+  address      String?
+  addressLine1 String?
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?
+  latitude     Float?
+  longitude    Float?
+  isPrimary    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   workingHours    WorkingHours[]
   workerLocations WorkerLocation[]
   bookings        Booking[]
+  blockedSlots    BlockedSlot[]
 
   @@map("locations")
 }
@@ -176,6 +200,8 @@ model WorkingHours {
   dayOfWeek  DayOfWeek
   openTime   String
   closeTime  String
+  breakStart String?
+  breakEnd   String?
   isClosed   Boolean   @default(false)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -187,16 +213,18 @@ model WorkingHours {
 }
 
 model Service {
-  id          String   @id @default(cuid())
-  businessId  String
-  categoryId  String?
-  name        String
-  description String?
-  duration    Int
-  price       Float
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  businessId      String
+  categoryId      String?
+  name            String
+  description     String?
+  duration        Int
+  durationMinutes Int?
+  price           Float
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category        Category?        @relation(fields: [categoryId], references: [id])
@@ -207,18 +235,20 @@ model Service {
 }
 
 model Worker {
-  id         String   @id @default(cuid())
-  businessId String
-  userId     String?  @unique
-  firstName  String
-  lastName   String
-  email      String?
-  phone      String?
-  title      String?
-  avatarUrl  String?
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id           String   @id @default(cuid())
+  businessId   String
+  userId       String?
+  firstName    String
+  lastName     String
+  displayName  String?
+  email        String?
+  phone        String?
+  title        String?
+  avatarUrl    String?
+  businessRole String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   user            User?            @relation(fields: [userId], references: [id])
@@ -228,6 +258,7 @@ model Worker {
   reviews         Review[]
   blockedSlots    BlockedSlot[]
 
+  @@unique([userId, businessId])
   @@map("workers")
 }
 
@@ -256,23 +287,27 @@ model WorkerService {
 }
 
 model Booking {
-  id            String        @id @default(cuid())
-  bookingNumber String        @unique
-  userId        String?
-  businessId    String
-  workerId      String?
-  locationId    String?
-  startTime     DateTime
-  endTime       DateTime
-  status        BookingStatus @default(PENDING)
-  totalPrice    Float
-  notes         String?
-  guestName     String?
-  guestEmail    String?
-  guestPhone    String?
-  cancelReason  String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                 String        @id @default(cuid())
+  bookingNumber      String        @unique
+  userId             String?
+  businessId         String
+  workerId           String?
+  locationId         String?
+  startTime          DateTime
+  endTime            DateTime
+  status             BookingStatus @default(PENDING)
+  totalPrice         Float
+  depositAmount      Float?
+  paymentStatus      PaymentStatus @default(NONE)
+  notes              String?
+  source             String?
+  guestName          String?
+  guestEmail         String?
+  guestPhone         String?
+  cancelReason       String?
+  cancellationReason String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   user     User?     @relation(fields: [userId], references: [id])
   business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -287,11 +322,14 @@ model Booking {
 }
 
 model BookingService {
-  id        String @id @default(cuid())
-  bookingId String
-  serviceId String
-  price     Float
-  duration  Int
+  id              String  @id @default(cuid())
+  bookingId       String
+  serviceId       String
+  serviceName     String?
+  price           Float
+  duration        Int
+  durationMinutes Int?
+  sortOrder       Int     @default(0)
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   service Service @relation(fields: [serviceId], references: [id])
@@ -303,31 +341,37 @@ model BlockedSlot {
   id         String   @id @default(cuid())
   businessId String
   workerId   String?
+  locationId String?
   startTime  DateTime
   endTime    DateTime
   reason     String?
   createdAt  DateTime @default(now())
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  worker   Worker?  @relation(fields: [workerId], references: [id])
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  worker   Worker?   @relation(fields: [workerId], references: [id])
+  location Location? @relation(fields: [locationId], references: [id])
 
   @@map("blocked_slots")
 }
 
 model Review {
-  id         String   @id @default(cuid())
-  bookingId  String   @unique
-  userId     String
-  businessId String
-  workerId   String?
-  rating     Int
-  comment    String?
-  ownerReply String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id           String   @id @default(cuid())
+  bookingId    String   @unique
+  reviewerId   String
+  revieweeId   String?
+  revieweeType String?
+  businessId   String
+  workerId     String?
+  rating       Int
+  comment      String?
+  reply        String?
+  ownerReply   String?
+  isPublished  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id])
+  reviewer User     @relation("ReviewAuthor", fields: [reviewerId], references: [id])
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   worker   Worker?  @relation(fields: [workerId], references: [id])
 
@@ -342,6 +386,8 @@ model Notification {
   body      String
   data      Json?
   isRead    Boolean          @default(false)
+  sentAt    DateTime?
+  readAt    DateTime?
   createdAt DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -368,7 +414,7 @@ model Payment {
   businessId            String
   amount                Float
   currency              String        @default("eur")
-  stripePaymentIntentId String?
+  stripePaymentIntentId String?       @unique
   stripeRefundId        String?
   status                PaymentStatus @default(PENDING)
   createdAt             DateTime      @default(now())
@@ -391,4 +437,17 @@ model Favorite {
 
   @@unique([userId, businessId])
   @@map("favorites")
+}
+
+model WhatsappConversation {
+  id          String   @id @default(cuid())
+  businessId  String
+  phoneNumber String
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_conversations")
 }
