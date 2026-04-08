@@ -204,10 +204,9 @@ export class NotificationsService {
       const notification = await this.prisma.notification.create({
         data: {
           userId: data.userId,
-          type: data.type,
+          type: data.type as any,
           title: data.title,
           body: data.body,
-          channel: data.channel,
           data: data.data || {},
         },
       });
@@ -255,8 +254,8 @@ export class NotificationsService {
   ) {
     await this.prisma.deviceToken.upsert({
       where: { token },
-      create: { userId, token, platform },
-      update: { userId, platform },
+      create: { userId, token, platform: platform as any },
+      update: { userId, platform: platform as any },
     });
     return { message: 'Device registered' };
   }
