@@ -141,6 +141,7 @@ model Business {
   email                    String?
   website                  String?
   instagram                String?
+  facebook                 String?
   logoUrl                  String?
   coverUrl                 String?
   coverPhotoUrl            String?
@@ -185,6 +186,7 @@ model Location {
   postalCode   String?
   latitude     Float?
   longitude    Float?
+  phone        String?
   isPrimary    Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -227,6 +229,7 @@ model Service {
   durationMinutes Int?
   price           Float
   currency        String   @default("EUR")
+  requiresDeposit Boolean  @default(false)
   sortOrder       Int      @default(0)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
@@ -311,6 +314,8 @@ model Booking {
   guestName          String?
   guestEmail         String?
   guestPhone         String?
+  customerAddress    String?
+  rescheduledFromId  String?
   cancelReason       String?
   cancellationReason String?
   cancelledAt        DateTime?
@@ -364,8 +369,8 @@ model BlockedSlot {
 }
 
 model Review {
-  id           String   @id @default(cuid())
-  bookingId    String   @unique
+  id           String    @id @default(cuid())
+  bookingId    String    @unique
   reviewerId   String
   revieweeId   String?
   revieweeType String?
@@ -376,9 +381,9 @@ model Review {
   reply        String?
   replyAt      DateTime?
   ownerReply   String?
-  isPublished  Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isPublished  Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   reviewer User     @relation("ReviewAuthor", fields: [reviewerId], references: [id])
@@ -450,15 +455,17 @@ model Favorite {
 }
 
 model WhatsappConversation {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   businessId        String
   phoneNumber       String?
   waPhoneNumber     String?
   conversationState String?
-  status            String   @default("active")
+  status            String    @default("active")
+  selectedServiceId String?
+  selectedSlot      DateTime?
   lastMessageAt     DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
