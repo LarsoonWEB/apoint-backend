@@ -58,7 +58,7 @@ export class ReviewsService {
         revieweeId,
         rating: data.rating,
         comment: data.comment,
-      },
+      } as any,
     });
   }
 
