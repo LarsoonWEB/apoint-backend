@@ -142,15 +142,16 @@ export class CalendarService {
     reason?: string;
     isRecurring?: boolean;
   }) {
+    const { locationId, workerId, startTime, endTime, reason, isRecurring } = data;
     return this.prisma.blockedSlot.create({
       data: {
-        locationId: data.locationId,
-        workerId: data.workerId,
-        startTime: new Date(data.startTime),
-        endTime: new Date(data.endTime),
-        reason: data.reason,
-        isRecurring: data.isRecurring || false,
-      },
+        locationId,
+        workerId,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        reason,
+        isRecurring: isRecurring || false,
+      } as any,
     });
   }
 
